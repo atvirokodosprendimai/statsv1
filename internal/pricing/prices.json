@@ -1,0 +1,21 @@
+{
+  "source": "Anthropic list prices as cached in the claude-api skill bundled with Claude Code 2.1.259 (pricing table cached 2026-06-24; cache multipliers from its shared/prompt-caching.md: cache read 0.1x input, 0.025x on claude-fable-5-1; cache write 1.25x input at 5-minute TTL, 2x at 1-hour TTL). Rows with verified=false are not in that table and come from model memory; treat their cost as an estimate.",
+  "as_of": "2026-06-24",
+  "models": {
+    "claude-fable-5-1": {"input": 10, "output": 50, "cache_read": 0.25, "cache_write_5m": 12.5, "cache_write_1h": 20, "verified": true},
+    "claude-fable-5": {"input": 10, "output": 50, "cache_read": 1, "cache_write_5m": 12.5, "cache_write_1h": 20, "verified": true},
+    "claude-opus-5": {"input": 5, "output": 25, "cache_read": 0.5, "cache_write_5m": 6.25, "cache_write_1h": 10, "verified": true},
+    "claude-opus-4-8": {"input": 5, "output": 25, "cache_read": 0.5, "cache_write_5m": 6.25, "cache_write_1h": 10, "verified": true},
+    "claude-opus-4-7": {"input": 5, "output": 25, "cache_read": 0.5, "cache_write_5m": 6.25, "cache_write_1h": 10, "verified": true},
+    "claude-opus-4-6": {"input": 5, "output": 25, "cache_read": 0.5, "cache_write_5m": 6.25, "cache_write_1h": 10, "verified": true},
+    "claude-sonnet-5": {"input": 2, "output": 10, "cache_read": 0.2, "cache_write_5m": 2.5, "cache_write_1h": 4, "verified": true},
+    "claude-sonnet-4-6": {"input": 3, "output": 15, "cache_read": 0.3, "cache_write_5m": 3.75, "cache_write_1h": 6, "verified": true},
+    "claude-haiku-4-5": {"input": 1, "output": 5, "cache_read": 0.1, "cache_write_5m": 1.25, "cache_write_1h": 2, "verified": true},
+    "claude-sonnet-4-5": {"input": 3, "output": 15, "cache_read": 0.3, "cache_write_5m": 3.75, "cache_write_1h": 6, "verified": false, "note": "launch price from memory; not in the cached table"},
+    "claude-opus-4-5": {"input": 5, "output": 25, "cache_read": 0.5, "cache_write_5m": 6.25, "cache_write_1h": 10, "verified": false, "note": "launch price from memory; not in the cached table"},
+    "claude-opus-4-1": {"input": 15, "output": 75, "cache_read": 1.5, "cache_write_5m": 18.75, "cache_write_1h": 30, "verified": false, "note": "from memory; retired 2026-08-05"},
+    "claude-opus-4-0": {"input": 15, "output": 75, "cache_read": 1.5, "cache_write_5m": 18.75, "cache_write_1h": 30, "verified": false, "note": "from memory; deprecated"},
+    "claude-sonnet-4-0": {"input": 3, "output": 15, "cache_read": 0.3, "cache_write_5m": 3.75, "cache_write_1h": 6, "verified": false, "note": "from memory; deprecated"},
+    "claude-3-5-haiku": {"input": 0.8, "output": 4, "cache_read": 0.08, "cache_write_5m": 1, "cache_write_1h": 1.6, "verified": false, "note": "from memory; retired 2026-02-19"}
+  }
+}

@@ -1,0 +1,137 @@
+package report
+
+import (
+	"bytes"
+	"math"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/atvirokodosprendimai/statsv1/internal/pricing"
+	"github.com/atvirokodosprendimai/statsv1/internal/usage"
+)
+
+func fixture() ([]usage.Session, map[string]usage.Environment) {
+	day := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	req := func(id, model string, out int64) usage.Request {
+		return usage.Request{MessageID: id, At: day, Model: model, Tokens: usage.Tokens{Input: 100, Output: out, CacheRead: 1000, CacheWrite: 10, CacheWrite1h: 10, TTLKnown: true}}
+	}
+	sessions := []usage.Session{
+		{ID: "qam", ConfigDir: "/sandbox", StartedAt: day, UserTurns: 2, ToolCalls: 5, Signals: usage.Signals{AM: 2, MRW: 1, QH: 1},
+			Requests: []usage.Request{req("m1", "claude-opus-5", 1000), req("m2", "claude-opus-5", 1000)}},
+		{ID: "plain", ConfigDir: "/host", StartedAt: day.AddDate(0, 0, 1), UserTurns: 1, ToolCalls: 1,
+			Requests: []usage.Request{req("m3", "claude-opus-5", 4000), req("m4", "<synthetic>", 0)}},
+		{ID: "partial", ConfigDir: "/host", StartedAt: day.AddDate(0, 0, 2), UserTurns: 1, Signals: usage.Signals{AM: 1},
+			Requests: []usage.Request{req("m5", "claude-sonnet-4-5-20250929", 100)}},
+	}
+	envs := map[string]usage.Environment{
+		"/sandbox": {Dir: "/sandbox", HasAgentsmemory: true, HasQualityHarness: true},
+		"/host":    {Dir: "/host"},
+	}
+	return sessions, envs
+}
+
+func TestBuildGroupsByCohortEnvironmentAndModel(t *testing.T) {
+	prices, err := pricing.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions, envs := fixture()
+	m := Build(sessions, envs, prices, Options{})
+
+	keys := func(rows []Row) []string {
+		var ks []string
+		for _, r := range rows {
+			ks = append(ks, r.Key)
+		}
+		return ks
+	}
+	if got := strings.Join(keys(m.ByCohort), ","); got != "QAM,partial:A,none" {
+		t.Errorf("cohort order = %s, want QAM,partial:A,none", got)
+	}
+	qam := m.ByCohort[0]
+	if qam.Sessions != 1 || qam.UserTurns != 2 || qam.Requests != 2 || qam.Output != 2000 || qam.ToolCalls != 5 {
+		t.Errorf("QAM row = %+v", qam)
+	}
+	// 2 requests x (100 in x 5 + 1000 out x 25 + 1000 cr x 0.5 + 10 cw1h x 10) per million.
+	wantQAM := 2 * (100*5 + 1000*25 + 1000*0.5 + 10*10) / 1e6
+	if math.Abs(qam.CostUSD-wantQAM) > 1e-9 {
+		t.Errorf("QAM cost = %.6f, want %.6f", qam.CostUSD, wantQAM)
+	}
+	if math.Abs(qam.CostPerTurn()-wantQAM/2) > 1e-9 {
+		t.Errorf("QAM cost per turn = %.6f, want %.6f", qam.CostPerTurn(), wantQAM/2)
+	}
+	none := m.ByCohort[2]
+	if none.UnpricedRequests != 1 || none.Requests != 2 {
+		t.Errorf("synthetic request must be counted but unpriced: %+v", none)
+	}
+	partial := m.ByCohort[1]
+	if partial.UnverifiedUSD <= 0 || math.Abs(partial.UnverifiedUSD-partial.CostUSD) > 1e-12 {
+		t.Errorf("sonnet-4-5 is priced from memory, so its whole cost is unverified: %+v", partial)
+	}
+	if got := strings.Join(keys(m.ByEnvironment), ","); got != "plain,qam-installed" {
+		t.Errorf("environment keys = %s", got)
+	}
+	if m.ByModel[0].Key != "claude-opus-5" {
+		t.Errorf("most expensive model should lead: %v", keys(m.ByModel))
+	}
+	if m.Total.Sessions != 3 || m.Total.Requests != 5 {
+		t.Errorf("total = %+v", m.Total)
+	}
+	if hit := m.Total.CacheHitRatio(); hit <= 0.85 || hit >= 0.95 {
+		t.Errorf("cache hit ratio = %.3f, want about 0.9 (1000 of 1110 prompt tokens)", hit)
+	}
+}
+
+func TestOptionsSinceUntilFilterBySessionStart(t *testing.T) {
+	prices, _ := pricing.Load()
+	sessions, envs := fixture()
+	day := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	m := Build(sessions, envs, prices, Options{Since: day.AddDate(0, 0, 1), Until: day.AddDate(0, 0, 2)})
+	if m.Total.Sessions != 1 || m.ByCohort[0].Key != "none" {
+		t.Errorf("filter kept the wrong sessions: %+v", m.ByCohort)
+	}
+}
+
+func TestWritersProduceEverySection(t *testing.T) {
+	prices, _ := pricing.Load()
+	sessions, envs := fixture()
+	m := Build(sessions, envs, prices, Options{})
+
+	var text bytes.Buffer
+	if err := m.WriteText(&text); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"by QAM usage cohort", "by environment", "by model", "QAM", "partial:A", "none", "qam-installed", "claude-opus-5", "assumed_ttl_tokens"} {
+		if !strings.Contains(text.String(), want) {
+			t.Errorf("text report lacks %q:\n%s", want, text.String())
+		}
+	}
+	var csvOut bytes.Buffer
+	if err := m.WriteCSV(&csvOut); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(csvOut.String()), "\n")
+	// header + 3 cohorts + 2 environments + 3 models + total
+	if len(lines) != 10 {
+		t.Errorf("csv lines = %d, want 10:\n%s", len(lines), csvOut.String())
+	}
+	var js bytes.Buffer
+	if err := m.WriteJSON(&js); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(js.String(), `"by_cohort"`) {
+		t.Errorf("json lacks by_cohort: %s", js.String())
+	}
+	rows := SessionRows(sessions, envs, prices, Options{})
+	if len(rows) != 3 || rows[0].ID != "partial" || rows[2].Cohort != "QAM" {
+		t.Errorf("session rows should be newest first: %+v", rows)
+	}
+	var st bytes.Buffer
+	if err := WriteSessionsText(&st, rows); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(st.String(), "qam-installed") {
+		t.Errorf("sessions text lacks environment column:\n%s", st.String())
+	}
+}
