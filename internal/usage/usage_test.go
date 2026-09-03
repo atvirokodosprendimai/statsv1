@@ -55,9 +55,9 @@ func TestCohortNamesComponentsInQAMOrder(t *testing.T) {
 
 func TestTokensMaxKeepsTheLargerCountAndAnyKnownTTL(t *testing.T) {
 	a := Tokens{Input: 2, Output: 1, CacheRead: 10, CacheWrite: 5}
-	b := Tokens{Input: 2, Output: 90, CacheRead: 10, CacheWrite: 5, CacheWrite1h: 5, TTLKnown: true}
+	b := Tokens{Input: 2, Output: 90, CacheRead: 10, CacheWrite: 5, CacheWrite1h: 5, TTLKnown: true, Thinking: 30, ThinkingKnown: true}
 	a.Max(b)
-	if a.Output != 90 || a.CacheWrite1h != 5 || !a.TTLKnown {
+	if a.Output != 90 || a.CacheWrite1h != 5 || !a.TTLKnown || a.Thinking != 30 || !a.ThinkingKnown {
 		t.Fatalf("Max merged wrongly: %+v", a)
 	}
 }

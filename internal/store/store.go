@@ -101,6 +101,8 @@ type requestRow struct {
 	Model              string `gorm:"column:model"`
 	InputTokens        int64  `gorm:"column:input_tokens"`
 	OutputTokens       int64  `gorm:"column:output_tokens"`
+	ThinkingTokens     int64  `gorm:"column:thinking_tokens"`
+	ThinkingKnown      bool   `gorm:"column:thinking_known"`
 	CacheReadTokens    int64  `gorm:"column:cache_read_tokens"`
 	CacheWriteTokens   int64  `gorm:"column:cache_write_tokens"`
 	CacheWrite5mTokens int64  `gorm:"column:cache_write_5m_tokens"`
@@ -169,7 +171,7 @@ func (s *Store) PutSession(sess usage.Session) error {
 		rows = append(rows, requestRow{
 			RequestKey: fmt.Sprintf("%s|%s#%d", sess.ID, r.MessageID, r.Iteration), SessionID: sess.ID, MessageID: r.MessageID, Iteration: r.Iteration, RequestID: r.RequestID,
 			At: formatTime(r.At), Model: r.Model,
-			InputTokens: r.Tokens.Input, OutputTokens: r.Tokens.Output, CacheReadTokens: r.Tokens.CacheRead,
+			InputTokens: r.Tokens.Input, OutputTokens: r.Tokens.Output, ThinkingTokens: r.Tokens.Thinking, ThinkingKnown: r.Tokens.ThinkingKnown, CacheReadTokens: r.Tokens.CacheRead,
 			CacheWriteTokens: r.Tokens.CacheWrite, CacheWrite5mTokens: r.Tokens.CacheWrite5m, CacheWrite1hTokens: r.Tokens.CacheWrite1h,
 			TTLKnown: r.Tokens.TTLKnown, IsSubagent: r.IsSubagent, AgentID: r.AgentID, ToolUses: r.ToolUses,
 		})
@@ -227,7 +229,7 @@ func (s *Store) Sessions() ([]usage.Session, error) {
 		byID[r.SessionID] = append(byID[r.SessionID], usage.Request{
 			SessionID: r.SessionID, MessageID: r.MessageID, Iteration: r.Iteration, RequestID: r.RequestID, At: parseTime(r.At), Model: r.Model,
 			Tokens: usage.Tokens{Input: r.InputTokens, Output: r.OutputTokens, CacheRead: r.CacheReadTokens, CacheWrite: r.CacheWriteTokens,
-				CacheWrite5m: r.CacheWrite5mTokens, CacheWrite1h: r.CacheWrite1hTokens, TTLKnown: r.TTLKnown},
+				CacheWrite5m: r.CacheWrite5mTokens, CacheWrite1h: r.CacheWrite1hTokens, TTLKnown: r.TTLKnown, Thinking: r.ThinkingTokens, ThinkingKnown: r.ThinkingKnown},
 			IsSubagent: r.IsSubagent, AgentID: r.AgentID, ToolUses: r.ToolUses,
 		})
 	}

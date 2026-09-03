@@ -83,9 +83,10 @@ func newApp() *cli.Command {
 			},
 			{
 				Name:  "compare",
-				Usage: "sessions before a date against sessions from it on, month by month, with what changed",
+				Usage: "sessions before a date against sessions from it on, by month, week or day, with what changed",
 				Flags: []cli.Flag{dbFlag(), formatFlag(),
 					&cli.StringFlag{Name: "at", Usage: "split date (YYYY-MM-DD); default: the day of the first session that used quality-harness"},
+					&cli.StringFlag{Name: "by", Value: "month", Usage: "time table granularity: month, week or day"},
 				},
 				Action: runCompare,
 			},
@@ -214,6 +215,12 @@ func runReport(_ context.Context, c *cli.Command) error {
 // it. Without --at the split is the first session whose own tool calls show
 // quality-harness, the component whose arrival M calls the QAM installation.
 func runCompare(_ context.Context, c *cli.Command) error {
+	bucket := c.String("by")
+	switch bucket {
+	case "month", "week", "day":
+	default:
+		return fmt.Errorf("by %q: want month, week or day", bucket)
+	}
 	sessions, envs, prices, err := load(c)
 	if err != nil {
 		return err
@@ -231,7 +238,7 @@ func runCompare(_ context.Context, c *cli.Command) error {
 		split = first.QualityHarness.UTC().Truncate(24 * time.Hour)
 		reason = "the first session that used quality-harness"
 	}
-	cmp := report.Compare(sessions, envs, prices, split, reason)
+	cmp := report.Compare(sessions, envs, prices, split, reason, bucket)
 	switch c.String("format") {
 	case "table":
 		return cmp.WriteText(os.Stdout)

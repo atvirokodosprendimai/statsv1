@@ -22,6 +22,12 @@ type Tokens struct {
 	CacheWrite5m int64
 	CacheWrite1h int64
 	TTLKnown     bool
+	// Thinking is the reasoning share of Output (output_tokens_details.
+	// thinking_tokens). It is billed inside Output and is never priced again.
+	// ThinkingKnown is false on transcripts that predate the counter, where
+	// zero means unrecorded rather than none.
+	Thinking      int64
+	ThinkingKnown bool
 }
 
 // Add accumulates o into t. TTLKnown is left alone: it describes a single
@@ -33,6 +39,7 @@ func (t *Tokens) Add(o Tokens) {
 	t.CacheWrite += o.CacheWrite
 	t.CacheWrite5m += o.CacheWrite5m
 	t.CacheWrite1h += o.CacheWrite1h
+	t.Thinking += o.Thinking
 }
 
 // Max keeps the larger of each counter. A transcript repeats one message once
@@ -46,6 +53,8 @@ func (t *Tokens) Max(o Tokens) {
 	t.CacheWrite5m = max(t.CacheWrite5m, o.CacheWrite5m)
 	t.CacheWrite1h = max(t.CacheWrite1h, o.CacheWrite1h)
 	t.TTLKnown = t.TTLKnown || o.TTLKnown
+	t.Thinking = max(t.Thinking, o.Thinking)
+	t.ThinkingKnown = t.ThinkingKnown || o.ThinkingKnown
 }
 
 // Request is one billed attempt of a deduplicated API call made by a session,

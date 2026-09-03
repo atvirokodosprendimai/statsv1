@@ -175,6 +175,9 @@ type usageFields struct {
 	CacheCreationInputTokens int64          `json:"cache_creation_input_tokens"`
 	CacheReadInputTokens     int64          `json:"cache_read_input_tokens"`
 	CacheCreation            *cacheCreation `json:"cache_creation"`
+	OutputTokensDetails      *struct {
+		ThinkingTokens int64 `json:"thinking_tokens"`
+	} `json:"output_tokens_details"`
 }
 
 type cacheCreation struct {
@@ -358,12 +361,20 @@ func attemptsOf(u *apiUsage, model string) []attempt {
 		return []attempt{{model: model, tokens: tokensOf(&u.usageFields)}}
 	}
 	out := make([]attempt, 0, len(u.Iterations))
-	for _, it := range u.Iterations {
+	for i, it := range u.Iterations {
 		m := it.Model
 		if m == "" {
 			m = model
 		}
-		out = append(out, attempt{model: m, tokens: tokensOf(&it.usageFields)})
+		tok := tokensOf(&it.usageFields)
+		// Nearly every message lists a single iteration, and iteration entries
+		// omit the thinking breakdown. The top-level counters describe the
+		// last attempt, so that attempt inherits the top-level counter.
+		if i == len(u.Iterations)-1 && !tok.ThinkingKnown && u.OutputTokensDetails != nil {
+			tok.ThinkingKnown = true
+			tok.Thinking = u.OutputTokensDetails.ThinkingTokens
+		}
+		out = append(out, attempt{model: m, tokens: tok})
 	}
 	return out
 }
@@ -382,6 +393,12 @@ func tokensOf(u *usageFields) usage.Tokens {
 		t.TTLKnown = true
 		t.CacheWrite5m = cc.Ephemeral5m
 		t.CacheWrite1h = cc.Ephemeral1h
+	}
+	// The thinking counter arrived with a later harness; a transcript without
+	// it records nothing, which is not the same as zero thinking.
+	if d := u.OutputTokensDetails; d != nil {
+		t.ThinkingKnown = true
+		t.Thinking = d.ThinkingTokens
 	}
 	return t
 }

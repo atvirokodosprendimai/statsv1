@@ -17,7 +17,7 @@ import (
 // price; a fallback message billed as two iterations, repeated; and a
 // subagent transcript stored beside the main file.
 const mainTranscript = `{"type":"user","uuid":"u1","timestamp":"2026-09-01T10:00:00.000Z","sessionId":"s1","cwd":"/w/proj","version":"2.1.236","message":{"role":"user","content":"hello"}}
-{"type":"assistant","uuid":"a1","timestamp":"2026-09-01T10:00:01.000Z","sessionId":"s1","cwd":"/w/proj","version":"2.1.236","requestId":"req_1","message":{"id":"msg_1","role":"assistant","model":"claude-opus-5","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":2,"output_tokens":90,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":100}}}}
+{"type":"assistant","uuid":"a1","timestamp":"2026-09-01T10:00:01.000Z","sessionId":"s1","cwd":"/w/proj","version":"2.1.236","requestId":"req_1","message":{"id":"msg_1","role":"assistant","model":"claude-opus-5","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":2,"output_tokens":90,"output_tokens_details":{"thinking_tokens":30},"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":100}}}}
 {"type":"assistant","uuid":"a2","timestamp":"2026-09-01T10:00:01.500Z","sessionId":"s1","cwd":"/w/proj","version":"2.1.236","requestId":"req_1","message":{"id":"msg_1","role":"assistant","model":"claude-opus-5","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"mrw read a.go"}}],"usage":{"input_tokens":2,"output_tokens":90,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":100}}}}
 {"type":"user","uuid":"u2","timestamp":"2026-09-01T10:00:02.000Z","sessionId":"s1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}
 {"type":"user","uuid":"u3","isMeta":true,"timestamp":"2026-09-01T10:00:02.100Z","sessionId":"s1","message":{"role":"user","content":"injected context"}}
@@ -32,7 +32,7 @@ not json at all
 {"type":"user","uuid":"u8","timestamp":"2026-09-01T10:00:06.300Z","sessionId":"s1","message":{"role":"user","content":"<command-message>am</command-message>\n<command-name>/am</command-name>\n<command-args>do the thing</command-args>"}}
 {"type":"user","uuid":"u9","timestamp":"2026-09-01T10:00:06.400Z","sessionId":"s1","message":{"role":"user","content":"<task-notification>\n<task-id>b3q97ca5q</task-id>\n<status>completed</status>\n</task-notification>"}}
 {"type":"user","uuid":"u10","timestamp":"2026-09-01T10:00:06.500Z","sessionId":"s1","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}
-{"type":"assistant","uuid":"a5","timestamp":"2026-09-01T10:00:07.000Z","sessionId":"s1","requestId":"req_4","message":{"id":"msg_4","role":"assistant","model":"claude-opus-4-8","content":[{"type":"text","text":"fallback"}],"usage":{"input_tokens":2,"output_tokens":20,"cache_creation_input_tokens":6,"cache_read_input_tokens":50,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":6},"iterations":[{"type":"message","model":"claude-fable-5","input_tokens":2,"output_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":50,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":5}},{"type":"fallback_message","model":"claude-opus-4-8","input_tokens":2,"output_tokens":20,"cache_creation_input_tokens":6,"cache_read_input_tokens":50,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":6}}]}}}
+{"type":"assistant","uuid":"a5","timestamp":"2026-09-01T10:00:07.000Z","sessionId":"s1","requestId":"req_4","message":{"id":"msg_4","role":"assistant","model":"claude-opus-4-8","content":[{"type":"text","text":"fallback"}],"usage":{"input_tokens":2,"output_tokens":20,"output_tokens_details":{"thinking_tokens":7},"cache_creation_input_tokens":6,"cache_read_input_tokens":50,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":6},"iterations":[{"type":"message","model":"claude-fable-5","input_tokens":2,"output_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":50,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":5}},{"type":"fallback_message","model":"claude-opus-4-8","input_tokens":2,"output_tokens":20,"cache_creation_input_tokens":6,"cache_read_input_tokens":50,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":6}}]}}}
 {"type":"assistant","uuid":"a6","timestamp":"2026-09-01T10:00:07.500Z","sessionId":"s1","requestId":"req_4","message":{"id":"msg_4","role":"assistant","model":"claude-opus-4-8","content":[{"type":"text","text":"fallback continued"}],"usage":{"input_tokens":2,"output_tokens":20,"cache_creation_input_tokens":6,"cache_read_input_tokens":50,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":6},"iterations":[{"type":"message","model":"claude-fable-5","input_tokens":2,"output_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":50,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":5}},{"type":"fallback_message","model":"claude-opus-4-8","input_tokens":2,"output_tokens":20,"cache_creation_input_tokens":6,"cache_read_input_tokens":50,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":6}}]}}}
 {"type":"user","uuid":"u11","timestamp":"2026-09-01T10:00:08.000Z","sessionId":"s1","message":{"role":"user","content":"<command-message>M</command-message>\n<command-name>/M</command-name>\n<command-args></command-args>"}}
 {"type":"attachment","uuid":"x2","timestamp":"2026-09-01T10:00:08.500Z","sessionId":"s1","attachment":{"type":"queued_command","prompt":"and also this","commandMode":"prompt","origin":{"kind":"human"}}}
@@ -95,7 +95,7 @@ func TestScanProjectsFoldsMainAndSubagentTranscriptsIntoOneSession(t *testing.T)
 		t.Fatalf("requests = %d, want 5 (msg_1 deduplicated, synthetic dropped, the fallback message billed as two attempts once)", len(s.Requests))
 	}
 	first := s.Requests[0]
-	if first.MessageID != "msg_1" || first.Iteration != 0 || first.ToolUses != 1 || first.Tokens.Output != 90 || first.Tokens.CacheWrite1h != 100 || !first.Tokens.TTLKnown {
+	if first.MessageID != "msg_1" || first.Iteration != 0 || first.ToolUses != 1 || first.Tokens.Output != 90 || first.Tokens.CacheWrite1h != 100 || !first.Tokens.TTLKnown || first.Tokens.Thinking != 30 || !first.Tokens.ThinkingKnown {
 		t.Errorf("msg_1 wrong: %+v", first)
 	}
 	if s.Requests[1].MessageID != "msg_2" || s.Requests[1].Tokens.TTLKnown || s.Requests[1].Model != "claude-fable-5-1" {
@@ -106,11 +106,11 @@ func TestScanProjectsFoldsMainAndSubagentTranscriptsIntoOneSession(t *testing.T)
 		t.Errorf("subagent request wrong: %+v", sub)
 	}
 	refused, answered := s.Requests[3], s.Requests[4]
-	if refused.MessageID != "msg_4" || refused.Iteration != 0 || refused.Model != "claude-fable-5" || refused.Tokens.Output != 10 || refused.Tokens.CacheWrite1h != 5 || refused.ToolUses != 0 {
+	if refused.MessageID != "msg_4" || refused.Iteration != 0 || refused.Model != "claude-fable-5" || refused.Tokens.Output != 10 || refused.Tokens.CacheWrite1h != 5 || refused.ToolUses != 0 || refused.Tokens.ThinkingKnown {
 		t.Errorf("refused attempt of the fallback message wrong: %+v", refused)
 	}
-	if answered.MessageID != "msg_4" || answered.Iteration != 1 || answered.Model != "claude-opus-4-8" || answered.Tokens.Output != 20 || answered.Tokens.CacheWrite1h != 6 {
-		t.Errorf("answering attempt of the fallback message wrong: %+v", answered)
+	if answered.MessageID != "msg_4" || answered.Iteration != 1 || answered.Model != "claude-opus-4-8" || answered.Tokens.Output != 20 || answered.Tokens.CacheWrite1h != 6 || answered.Tokens.Thinking != 7 || !answered.Tokens.ThinkingKnown {
+		t.Errorf("answering attempt of the fallback message must inherit the top-level thinking counter: %+v", answered)
 	}
 	if !s.StartedAt.Equal(time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)) || !s.EndedAt.Equal(time.Date(2026, 9, 1, 10, 0, 8, 700_000_000, time.UTC)) {
 		t.Errorf("time span wrong: %v .. %v", s.StartedAt, s.EndedAt)

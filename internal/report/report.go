@@ -38,21 +38,23 @@ func (o Options) keep(s usage.Session) bool {
 // Days counts the calendar days on which one of them started, so a period
 // can be normalised by how much of it was actually used.
 type Row struct {
-	Key              string  `json:"key"`
-	Sessions         int     `json:"sessions"`
-	Days             int     `json:"days"`
-	UserTurns        int     `json:"user_turns"`
-	Requests         int     `json:"requests"`
-	ToolCalls        int     `json:"tool_calls"`
-	Input            int64   `json:"input_tokens"`
-	Output           int64   `json:"output_tokens"`
-	CacheRead        int64   `json:"cache_read_tokens"`
-	CacheWrite       int64   `json:"cache_write_tokens"`
-	CostUSD          float64 `json:"cost_usd"`
-	UnpricedRequests int     `json:"unpriced_requests"`
-	AssumedTTLTokens int64   `json:"assumed_ttl_tokens"`
-	UnverifiedUSD    float64 `json:"unverified_price_usd"`
-	days             map[string]struct{}
+	Key                string  `json:"key"`
+	Sessions           int     `json:"sessions"`
+	Days               int     `json:"days"`
+	UserTurns          int     `json:"user_turns"`
+	Requests           int     `json:"requests"`
+	ToolCalls          int     `json:"tool_calls"`
+	Input              int64   `json:"input_tokens"`
+	Output             int64   `json:"output_tokens"`
+	Thinking           int64   `json:"thinking_tokens"`
+	CacheRead          int64   `json:"cache_read_tokens"`
+	CacheWrite         int64   `json:"cache_write_tokens"`
+	CostUSD            float64 `json:"cost_usd"`
+	UnpricedRequests   int     `json:"unpriced_requests"`
+	AssumedTTLTokens   int64   `json:"assumed_ttl_tokens"`
+	UnverifiedUSD      float64 `json:"unverified_price_usd"`
+	ThinkingUnrecorded int     `json:"thinking_unrecorded_requests"`
+	days               map[string]struct{}
 }
 
 // CostPerTurn is the cost of one human turn, the unit a person experiences.
@@ -105,6 +107,10 @@ func (r *Row) addRequest(req usage.Request, c pricing.Cost) {
 	r.Requests++
 	r.Input += req.Tokens.Input
 	r.Output += req.Tokens.Output
+	r.Thinking += req.Tokens.Thinking
+	if !req.Tokens.ThinkingKnown {
+		r.ThinkingUnrecorded++
+	}
 	r.CacheRead += req.Tokens.CacheRead
 	r.CacheWrite += req.Tokens.CacheWrite
 	r.CostUSD += c.USD
@@ -205,13 +211,13 @@ func sortedRows(set map[string]*Row, less func(a, b string) bool) []Row {
 	return rows
 }
 
-var columns = []string{"key", "sessions", "days", "turns", "requests", "tool_calls", "input", "output", "cache_read", "cache_write", "cost_usd", "usd_per_turn", "usd_per_request", "usd_per_day", "cache_hit", "unpriced_requests", "assumed_ttl_tokens", "unverified_usd"}
+var columns = []string{"key", "sessions", "days", "turns", "requests", "tool_calls", "input", "output", "thinking", "cache_read", "cache_write", "cost_usd", "usd_per_turn", "usd_per_request", "usd_per_day", "cache_hit", "unpriced_requests", "assumed_ttl_tokens", "unverified_usd", "thinking_unrecorded"}
 
 func (r Row) values() []string {
 	return []string{r.Key, strconv.Itoa(r.Sessions), strconv.Itoa(r.Days), strconv.Itoa(r.UserTurns), strconv.Itoa(r.Requests), strconv.Itoa(r.ToolCalls),
-		strconv.FormatInt(r.Input, 10), strconv.FormatInt(r.Output, 10), strconv.FormatInt(r.CacheRead, 10), strconv.FormatInt(r.CacheWrite, 10),
+		strconv.FormatInt(r.Input, 10), strconv.FormatInt(r.Output, 10), strconv.FormatInt(r.Thinking, 10), strconv.FormatInt(r.CacheRead, 10), strconv.FormatInt(r.CacheWrite, 10),
 		fmt.Sprintf("%.4f", r.CostUSD), fmt.Sprintf("%.4f", r.CostPerTurn()), fmt.Sprintf("%.5f", r.CostPerRequest()), fmt.Sprintf("%.4f", r.CostPerDay()), fmt.Sprintf("%.3f", r.CacheHitRatio()),
-		strconv.Itoa(r.UnpricedRequests), strconv.FormatInt(r.AssumedTTLTokens, 10), fmt.Sprintf("%.4f", r.UnverifiedUSD)}
+		strconv.Itoa(r.UnpricedRequests), strconv.FormatInt(r.AssumedTTLTokens, 10), fmt.Sprintf("%.4f", r.UnverifiedUSD), strconv.Itoa(r.ThinkingUnrecorded)}
 }
 
 func getRow(set map[string]*Row, key string) *Row {
@@ -431,28 +437,48 @@ type Installed struct {
 	At  time.Time `json:"at"`
 }
 
-// Comparison is the before/after view around a split date, with the months in
-// between so a change can be placed in time, and the cohorts inside each
-// period so a change in cost can be told from a change in what was used.
+// Comparison is the before/after view around a split date, with the time
+// buckets in between (month, week or day) so a change can be placed in time,
+// the per-request trend with its change bucket to bucket, and the cohorts
+// inside each period so a change in cost can be told from a change in what
+// was used.
 type Comparison struct {
 	GeneratedAt   time.Time   `json:"generated_at"`
 	SplitAt       time.Time   `json:"split_at"`
 	SplitReason   string      `json:"split_reason"`
+	Bucket        string      `json:"bucket"`
 	FirstUse      FirstUse    `json:"first_use"`
 	Installed     []Installed `json:"quality_harness_installed"`
 	PriceSource   string      `json:"price_source"`
 	Before        Row         `json:"before"`
 	After         Row         `json:"after"`
-	ByMonth       []Row       `json:"by_month"`
+	ByPeriod      []Row       `json:"by_period"`
+	Trend         []Trend     `json:"trend"`
 	CohortsBefore []Row       `json:"cohorts_before"`
 	CohortsAfter  []Row       `json:"cohorts_after"`
 }
 
-// Compare aggregates the sessions started before split and from split on.
-func Compare(sessions []usage.Session, envs map[string]usage.Environment, prices *pricing.Table, split time.Time, reason string) *Comparison {
+// bucketKey names the bucket a start time falls in. Weeks are ISO weeks and
+// carry their Monday so the key reads without a calendar; keys sort as text.
+func bucketKey(t time.Time, bucket string) string {
+	t = t.UTC()
+	switch bucket {
+	case "day":
+		return t.Format("2006-01-02")
+	case "week":
+		year, week := t.ISOWeek()
+		monday := t.AddDate(0, 0, -((int(t.Weekday()) + 6) % 7))
+		return fmt.Sprintf("%d-W%02d (%s)", year, week, monday.Format("01-02"))
+	}
+	return t.Format("2006-01")
+}
+
+// Compare aggregates the sessions started before split and from split on,
+// and buckets every session by month, week or day.
+func Compare(sessions []usage.Session, envs map[string]usage.Environment, prices *pricing.Table, split time.Time, reason, bucket string) *Comparison {
 	day := split.Format("2006-01-02")
 	c := &Comparison{
-		GeneratedAt: time.Now(), SplitAt: split, SplitReason: reason, FirstUse: FirstUses(sessions),
+		GeneratedAt: time.Now(), SplitAt: split, SplitReason: reason, Bucket: bucket, FirstUse: FirstUses(sessions),
 		PriceSource: prices.Source + " (as of " + prices.AsOf + ")",
 		Before:      Row{Key: "before " + day},
 		After:       Row{Key: "from " + day},
@@ -463,7 +489,7 @@ func Compare(sessions []usage.Session, envs map[string]usage.Environment, prices
 		}
 	}
 	sort.Slice(c.Installed, func(i, j int) bool { return c.Installed[i].At.Before(c.Installed[j].At) })
-	byMonth := map[string]*Row{}
+	byPeriod := map[string]*Row{}
 	before := map[string]*Row{}
 	after := map[string]*Row{}
 	for _, s := range sessions {
@@ -474,25 +500,144 @@ func Compare(sessions []usage.Session, envs map[string]usage.Environment, prices
 		if s.StartedAt.Before(split) {
 			period, cohorts = &c.Before, before
 		}
-		month := getRow(byMonth, s.StartedAt.UTC().Format("2006-01"))
+		slot := getRow(byPeriod, bucketKey(s.StartedAt, bucket))
 		cohort := getRow(cohorts, s.Signals.Cohort())
 		period.addSession(s)
-		month.addSession(s)
+		slot.addSession(s)
 		cohort.addSession(s)
 		for _, req := range s.Requests {
 			cost := prices.Cost(req.Model, req.Tokens)
 			period.addRequest(req, cost)
-			month.addRequest(req, cost)
+			slot.addRequest(req, cost)
 			cohort.addRequest(req, cost)
 		}
 	}
-	c.ByMonth = sortedRows(byMonth, func(a, b string) bool { return a < b })
+	c.ByPeriod = sortedRows(byPeriod, func(a, b string) bool { return a < b })
+	c.Trend = Trends(c.ByPeriod)
 	c.CohortsBefore = sortedRows(before, cohortOrder)
 	c.CohortsAfter = sortedRows(after, cohortOrder)
 	return c
 }
 
-// Changes lists the after-to-before ratios that answer "what changed".
+// Trend is one time bucket read per request and per turn, with the change of
+// every figure against the previous bucket, so what grew and what shrank
+// reads directly.
+type Trend struct {
+	Key                  string  `json:"key"`
+	Sessions             int     `json:"sessions"`
+	Requests             int     `json:"requests"`
+	UserTurns            int     `json:"user_turns"`
+	ToolCalls            int     `json:"tool_calls"`
+	CostUSD              float64 `json:"cost_usd"`
+	USDPerRequest        float64 `json:"usd_per_request"`
+	USDPerTurn           float64 `json:"usd_per_turn"`
+	InputPerRequest      float64 `json:"input_per_request"`
+	OutputPerRequest     float64 `json:"output_per_request"`
+	ThinkingPerRequest   float64 `json:"thinking_per_request"`
+	ThinkingShare        float64 `json:"thinking_share_of_output"`
+	CacheReadPerRequest  float64 `json:"cache_read_per_request"`
+	CacheWritePerRequest float64 `json:"cache_write_per_request"`
+	RequestsPerTurn      float64 `json:"requests_per_turn"`
+	ToolCallsPerRequest  float64 `json:"tool_calls_per_request"`
+	// Change is the percentage change of each figure against the previous
+	// bucket, keyed by the figure's name. Absent on the first bucket, and
+	// for a figure whose previous value was zero.
+	Change map[string]float64 `json:"change_pct,omitempty"`
+}
+
+// trendMetrics lists the figures a trend row carries, in print order, with
+// the format each is printed in.
+var trendMetrics = []struct {
+	name   string
+	format string
+	get    func(t Trend) float64
+}{
+	{"requests", "%.0f", func(t Trend) float64 { return float64(t.Requests) }},
+	{"usd_per_request", "%.4f", func(t Trend) float64 { return t.USDPerRequest }},
+	{"cost_usd", "%.2f", func(t Trend) float64 { return t.CostUSD }},
+	{"turns", "%.0f", func(t Trend) float64 { return float64(t.UserTurns) }},
+	{"requests_per_turn", "%.2f", func(t Trend) float64 { return t.RequestsPerTurn }},
+	{"usd_per_turn", "%.3f", func(t Trend) float64 { return t.USDPerTurn }},
+	{"sessions", "%.0f", func(t Trend) float64 { return float64(t.Sessions) }},
+	{"input_per_request", "%.1f", func(t Trend) float64 { return t.InputPerRequest }},
+	{"output_per_request", "%.0f", func(t Trend) float64 { return t.OutputPerRequest }},
+	{"thinking_per_request", "%.0f", func(t Trend) float64 { return t.ThinkingPerRequest }},
+	{"thinking_share_of_output", "%.3f", func(t Trend) float64 { return t.ThinkingShare }},
+	{"cache_read_per_request", "%.0f", func(t Trend) float64 { return t.CacheReadPerRequest }},
+	{"cache_write_per_request", "%.0f", func(t Trend) float64 { return t.CacheWritePerRequest }},
+	{"tool_calls_per_request", "%.2f", func(t Trend) float64 { return t.ToolCallsPerRequest }},
+}
+
+func ratioOf(num, den float64) float64 {
+	if den == 0 {
+		return 0
+	}
+	return num / den
+}
+
+// Trends derives the per-request view of each bucket and the change of every
+// figure against the bucket before it.
+func Trends(rows []Row) []Trend {
+	out := make([]Trend, 0, len(rows))
+	for _, r := range rows {
+		requests := float64(r.Requests)
+		t := Trend{
+			Key: r.Key, Sessions: r.Sessions, Requests: r.Requests, UserTurns: r.UserTurns, ToolCalls: r.ToolCalls, CostUSD: r.CostUSD,
+			USDPerRequest:        r.CostPerRequest(),
+			USDPerTurn:           r.CostPerTurn(),
+			InputPerRequest:      ratioOf(float64(r.Input), requests),
+			OutputPerRequest:     ratioOf(float64(r.Output), requests),
+			ThinkingPerRequest:   ratioOf(float64(r.Thinking), requests),
+			ThinkingShare:        ratioOf(float64(r.Thinking), float64(r.Output)),
+			CacheReadPerRequest:  ratioOf(float64(r.CacheRead), requests),
+			CacheWritePerRequest: ratioOf(float64(r.CacheWrite), requests),
+			RequestsPerTurn:      ratioOf(requests, float64(r.UserTurns)),
+			ToolCallsPerRequest:  ratioOf(float64(r.ToolCalls), requests),
+		}
+		if n := len(out); n > 0 {
+			prev := out[n-1]
+			t.Change = map[string]float64{}
+			for _, m := range trendMetrics {
+				if before := m.get(prev); before != 0 {
+					t.Change[m.name] = (m.get(t) - before) / before * 100
+				}
+			}
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+// cell prints one trend figure with its change against the previous bucket.
+func (t Trend) cell(name, format string, v float64) string {
+	s := fmt.Sprintf(format, v)
+	if pct, ok := t.Change[name]; ok {
+		return fmt.Sprintf("%s (%+.0f%%)", s, pct)
+	}
+	return s
+}
+
+func writeTrendTable(w io.Writer, trend []Trend, bucket string) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	header := []string{bucket}
+	for _, m := range trendMetrics {
+		header = append(header, m.name)
+	}
+	fmt.Fprintln(tw, strings.Join(header, "\t"))
+	for _, t := range trend {
+		cells := []string{t.Key}
+		for _, m := range trendMetrics {
+			cells = append(cells, t.cell(m.name, m.format, m.get(t)))
+		}
+		fmt.Fprintln(tw, strings.Join(cells, "\t"))
+	}
+	return tw.Flush()
+}
+
+// Changes lists the after-to-before ratios that answer "what changed". The
+// first line is the identity the rest hang on: what a human turn costs is the
+// number of requests it drives times what a request costs, so fewer, dearer
+// requests can be a saving and more, cheaper ones an expense.
 func (c *Comparison) Changes() []string {
 	b, a := c.Before, c.After
 	perTurn := func(n, turns int) float64 {
@@ -513,17 +658,36 @@ func (c *Comparison) Changes() []string {
 		}
 		return float64(n) / float64(requests)
 	}
+	share := func(part, whole int64) float64 {
+		if whole == 0 {
+			return 0
+		}
+		return float64(part) / float64(whole)
+	}
 	return []string{
-		"cost per human turn: " + ratio(a.CostPerTurn(), b.CostPerTurn()),
+		fmt.Sprintf("cost per human turn = requests per turn x cost per request: %s x %s = %s",
+			factor(perTurn(a.Requests, a.UserTurns), perTurn(b.Requests, b.UserTurns)), factor(a.CostPerRequest(), b.CostPerRequest()), factor(a.CostPerTurn(), b.CostPerTurn())),
+		"requests per human turn: " + ratio(perTurn(a.Requests, a.UserTurns), perTurn(b.Requests, b.UserTurns)),
 		"cost per request: " + ratio(a.CostPerRequest(), b.CostPerRequest()),
+		"cost per human turn: " + ratio(a.CostPerTurn(), b.CostPerTurn()),
+		"requests per active day: " + ratio(perDay(a.Requests, a.Days), perDay(b.Requests, b.Days)),
 		"cost per active day: " + ratio(a.CostPerDay(), b.CostPerDay()),
 		"sessions per active day: " + ratio(perDay(a.Sessions, a.Days), perDay(b.Sessions, b.Days)),
-		"requests per human turn: " + ratio(perTurn(a.Requests, a.UserTurns), perTurn(b.Requests, b.UserTurns)),
 		"tool calls per human turn: " + ratio(perTurn(a.ToolCalls, a.UserTurns), perTurn(b.ToolCalls, b.UserTurns)),
 		"output tokens per request: " + ratio(perRequest(a.Output, a.Requests), perRequest(b.Output, b.Requests)),
+		"thinking tokens per request: " + ratio(perRequest(a.Thinking, a.Requests), perRequest(b.Thinking, b.Requests)),
+		fmt.Sprintf("thinking share of output: %.3f before, %.3f after (%d and %d requests carry no thinking counter)", share(b.Thinking, b.Output), share(a.Thinking, a.Output), b.ThinkingUnrecorded, a.ThinkingUnrecorded),
 		"cache read tokens per request: " + ratio(perRequest(a.CacheRead, a.Requests), perRequest(b.CacheRead, b.Requests)),
 		fmt.Sprintf("cache hit ratio: %.3f before, %.3f after", b.CacheHitRatio(), a.CacheHitRatio()),
 	}
+}
+
+// factor prints an after-over-before multiplier on its own.
+func factor(after, before float64) string {
+	if before == 0 || after == 0 {
+		return "n/a"
+	}
+	return fmt.Sprintf("x%.2f", after/before)
 }
 
 func ratio(after, before float64) string {
@@ -554,7 +718,7 @@ func (c *Comparison) WriteText(w io.Writer) error {
 		rows  []Row
 	}{
 		{"before and after", []Row{c.Before, c.After}},
-		{"by month", c.ByMonth},
+		{"by " + c.Bucket, c.ByPeriod},
 		{"by QAM usage cohort, before " + day, c.CohortsBefore},
 		{"by QAM usage cohort, from " + day, c.CohortsAfter},
 	}
@@ -565,6 +729,11 @@ func (c *Comparison) WriteText(w io.Writer) error {
 		}
 		fmt.Fprintln(w)
 	}
+	fmt.Fprintf(w, "per request and per turn by %s, each figure with its change against the previous %s (nothing to compare on the first):\n", c.Bucket, c.Bucket)
+	if err := writeTrendTable(w, c.Trend, c.Bucket); err != nil {
+		return err
+	}
+	fmt.Fprintln(w)
 	fmt.Fprintln(w, "what changed (after relative to before):")
 	for _, line := range c.Changes() {
 		fmt.Fprintln(w, "  "+line)
@@ -583,12 +752,35 @@ func (c *Comparison) WriteCSV(w io.Writer) error {
 	sections := []struct {
 		name string
 		rows []Row
-	}{{"period", []Row{c.Before, c.After}}, {"month", c.ByMonth}, {"cohort_before", c.CohortsBefore}, {"cohort_after", c.CohortsAfter}}
+	}{{"period", []Row{c.Before, c.After}}, {c.Bucket, c.ByPeriod}, {"cohort_before", c.CohortsBefore}, {"cohort_after", c.CohortsAfter}}
 	for _, sec := range sections {
 		for _, r := range sec.rows {
 			if err := cw.Write(append([]string{sec.name}, r.values()...)); err != nil {
 				return err
 			}
+		}
+	}
+	// The trend has its own columns, so it follows as a second block with its
+	// own header rather than being forced into the matrix columns.
+	header := []string{"trend_" + c.Bucket}
+	for _, m := range trendMetrics {
+		header = append(header, m.name, m.name+"_change_pct")
+	}
+	if err := cw.Write(header); err != nil {
+		return err
+	}
+	for _, t := range c.Trend {
+		rec := []string{t.Key}
+		for _, m := range trendMetrics {
+			rec = append(rec, fmt.Sprintf(m.format, m.get(t)))
+			if pct, ok := t.Change[m.name]; ok {
+				rec = append(rec, fmt.Sprintf("%.1f", pct))
+			} else {
+				rec = append(rec, "")
+			}
+		}
+		if err := cw.Write(rec); err != nil {
+			return err
 		}
 	}
 	cw.Flush()

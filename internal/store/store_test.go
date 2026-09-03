@@ -15,7 +15,7 @@ func sample() usage.Session {
 		StartedAt: at, EndedAt: at.Add(time.Minute), UserTurns: 2, ToolCalls: 3, Subagents: 1,
 		Signals: usage.Signals{AM: 1, MRW: 1, QH: 1},
 		Requests: []usage.Request{
-			{SessionID: "s1", MessageID: "msg_1", RequestID: "req_1", At: at, Model: "claude-opus-5", Tokens: usage.Tokens{Input: 2, Output: 90, CacheRead: 1000, CacheWrite: 100, CacheWrite1h: 100, TTLKnown: true}, ToolUses: 1},
+			{SessionID: "s1", MessageID: "msg_1", RequestID: "req_1", At: at, Model: "claude-opus-5", Tokens: usage.Tokens{Input: 2, Output: 90, CacheRead: 1000, CacheWrite: 100, CacheWrite1h: 100, TTLKnown: true, Thinking: 30, ThinkingKnown: true}, ToolUses: 1},
 			{SessionID: "s1", MessageID: "msg_9", RequestID: "req_3", At: at.Add(time.Second), Model: "claude-opus-5", Tokens: usage.Tokens{Input: 1, Output: 2, CacheRead: 4, CacheWrite: 3}, IsSubagent: true, AgentID: "abc"},
 		},
 	}

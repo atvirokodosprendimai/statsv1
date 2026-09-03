@@ -81,6 +81,7 @@ go build -o statsv1 ./cmd/statsv1
 ./statsv1 sessions --cohort QAM --format csv --limit 0
 ./statsv1 compare                       # before the QAM stack arrived vs after, month by month, what changed
 ./statsv1 compare --at 2026-08-01       # split at a date of your choosing (the plugin install date, a month start)
+./statsv1 compare --by week             # the time table per ISO week (or --by day), with per-request figures and their change
 ./statsv1 verify                        # our cost beside Claude Code's own lastCost per project
 ./statsv1 prices                        # the price table and where it came from
 ```
@@ -93,6 +94,21 @@ same columns as the matrix plus `days` (calendar days with a session) and
 the after-to-before ratios. It also prints when each component first appears
 in the data and when the quality-harness plugin was installed in each config
 directory, so the split can be checked against the install date.
+
+The time table (`--by month`, `week` or `day`) is followed by a per-request
+view of the same buckets: requests, USD per request, cost, turns, requests
+per turn, USD per turn, tokens per request (input, output, thinking, cache
+read, cache write) and tool calls per request, each with its percentage
+change against the previous bucket. Read it through the identity the ratios
+are built on: cost per human turn equals requests per turn times cost per
+request, so ten times fewer requests at twice the price per request is a
+five-fold saving, and the reverse an expense.
+
+Thinking (reasoning) tokens come from `output_tokens_details.thinking_tokens`
+in the usage block. They are part of `output` and are never priced a second
+time. Transcripts written before the counter existed (all of July 2026 on
+this machine) record nothing, which the report shows as
+`thinking_unrecorded` rather than as zero thinking.
 
 The database defaults to `statsv1.db` in the working directory
 (`--db PATH` or `STATSV1_DB` to move it). Re-running `collect` is idempotent:

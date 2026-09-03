@@ -36,6 +36,8 @@ CREATE TABLE requests (
     model                 TEXT NOT NULL,
     input_tokens          INTEGER NOT NULL,
     output_tokens         INTEGER NOT NULL,
+    thinking_tokens       INTEGER NOT NULL,
+    thinking_known        INTEGER NOT NULL,
     cache_read_tokens     INTEGER NOT NULL,
     cache_write_tokens    INTEGER NOT NULL,
     cache_write_5m_tokens INTEGER NOT NULL,
