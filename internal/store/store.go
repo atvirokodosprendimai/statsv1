@@ -65,6 +65,7 @@ type configDirRow struct {
 	Label             string `gorm:"column:label"`
 	HasAgentsmemory   bool   `gorm:"column:has_agentsmemory"`
 	HasQualityHarness bool   `gorm:"column:has_quality_harness"`
+	QHInstalledAt     string `gorm:"column:qh_installed_at"`
 	ScannedAt         string `gorm:"column:scanned_at"`
 }
 
@@ -148,7 +149,8 @@ var upsert = clause.OnConflict{UpdateAll: true}
 
 // PutEnvironment records what a config directory had installed when scanned.
 func (s *Store) PutEnvironment(e usage.Environment) error {
-	row := configDirRow{Path: e.Dir, Label: e.Label(), HasAgentsmemory: e.HasAgentsmemory, HasQualityHarness: e.HasQualityHarness, ScannedAt: formatTime(e.ScannedAt)}
+	row := configDirRow{Path: e.Dir, Label: e.Label(), HasAgentsmemory: e.HasAgentsmemory, HasQualityHarness: e.HasQualityHarness,
+		QHInstalledAt: formatTime(e.QualityHarnessInstalledAt), ScannedAt: formatTime(e.ScannedAt)}
 	return s.db.Clauses(upsert).Create(&row).Error
 }
 
@@ -204,7 +206,8 @@ func (s *Store) Environments() (map[string]usage.Environment, error) {
 	}
 	out := make(map[string]usage.Environment, len(rows))
 	for _, r := range rows {
-		out[r.Path] = usage.Environment{Dir: r.Path, HasAgentsmemory: r.HasAgentsmemory, HasQualityHarness: r.HasQualityHarness, ScannedAt: parseTime(r.ScannedAt)}
+		out[r.Path] = usage.Environment{Dir: r.Path, HasAgentsmemory: r.HasAgentsmemory, HasQualityHarness: r.HasQualityHarness,
+			QualityHarnessInstalledAt: parseTime(r.QHInstalledAt), ScannedAt: parseTime(r.ScannedAt)}
 	}
 	return out, nil
 }

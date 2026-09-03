@@ -126,13 +126,16 @@ func TestReadEnvironmentAndCostReferences(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(cfg, "plugins"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	plugins := `{"version":2,"plugins":{"quality-harness@quality-harness":[{"scope":"user"}],"eidos@eidos":[]}}`
+	plugins := `{"version":2,"plugins":{"quality-harness@quality-harness":[{"scope":"user","installedAt":"2026-08-27T16:27:03.794Z"},{"scope":"project","installedAt":"2026-08-30T10:00:00.000Z"}],"eidos@eidos":[]}}`
 	if err := os.WriteFile(filepath.Join(cfg, "plugins", "installed_plugins.json"), []byte(plugins), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	env := ReadEnvironment(cfg, time.Now())
 	if !env.HasAgentsmemory || !env.HasQualityHarness || env.Label() != "qam-installed" {
 		t.Errorf("environment = %+v", env)
+	}
+	if !env.QualityHarnessInstalledAt.Equal(time.Date(2026, 8, 27, 16, 27, 3, 794_000_000, time.UTC)) {
+		t.Errorf("installed at = %v, want the earliest scope entry 2026-08-27T16:27:03.794Z", env.QualityHarnessInstalledAt)
 	}
 	refs, err := ReadCostReferences(cfg)
 	if err != nil {

@@ -122,14 +122,16 @@ type Session struct {
 }
 
 // Environment is what a Claude Code config directory has installed when it is
-// scanned: the agentsmemory MCP registration and the quality-harness plugin.
-// mrw is a binary on PATH and leaves no trace in a config directory, so the
-// environment can only witness A and Q.
+// scanned: the agentsmemory MCP registration and the quality-harness plugin,
+// with the date the plugin was installed when the plugin registry records
+// one. mrw is a binary on PATH and leaves no trace in a config directory, so
+// the environment can only witness A and Q.
 type Environment struct {
-	Dir               string
-	HasAgentsmemory   bool
-	HasQualityHarness bool
-	ScannedAt         time.Time
+	Dir                       string
+	HasAgentsmemory           bool
+	HasQualityHarness         bool
+	QualityHarnessInstalledAt time.Time
+	ScannedAt                 time.Time
 }
 
 // Label names the environment for the report.

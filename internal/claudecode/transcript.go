@@ -495,7 +495,8 @@ func ReadCostReferences(configDir string) ([]usage.CostReference, error) {
 
 // ReadEnvironment reports which QAM components a config directory has
 // installed: agentsmemory as a user-scope MCP server in .claude.json, and the
-// quality-harness plugin in plugins/installed_plugins.json.
+// quality-harness plugin in plugins/installed_plugins.json, with the earliest
+// installedAt the registry records for it.
 func ReadEnvironment(configDir string, now time.Time) usage.Environment {
 	env := usage.Environment{Dir: configDir, ScannedAt: now}
 	if cj, err := readClaudeJSON(configDir); err == nil {
@@ -511,12 +512,38 @@ func ReadEnvironment(configDir string, now time.Time) usage.Environment {
 					keys = inner
 				}
 			}
-			for k := range keys {
-				if strings.HasPrefix(k, "quality-harness") {
-					env.HasQualityHarness = true
+			for k, raw := range keys {
+				if !strings.HasPrefix(k, "quality-harness") {
+					continue
+				}
+				env.HasQualityHarness = true
+				if at := earliestInstall(raw); !at.IsZero() && (env.QualityHarnessInstalledAt.IsZero() || at.Before(env.QualityHarnessInstalledAt)) {
+					env.QualityHarnessInstalledAt = at
 				}
 			}
 		}
 	}
 	return env
+}
+
+// earliestInstall reads the installedAt of every entry a plugin lists in the
+// registry (one per scope) and returns the earliest; zero when none parses.
+func earliestInstall(raw json.RawMessage) time.Time {
+	var entries []struct {
+		InstalledAt string `json:"installedAt"`
+	}
+	if json.Unmarshal(raw, &entries) != nil {
+		return time.Time{}
+	}
+	var earliest time.Time
+	for _, e := range entries {
+		at, err := time.Parse(time.RFC3339Nano, e.InstalledAt)
+		if err != nil {
+			continue
+		}
+		if earliest.IsZero() || at.Before(earliest) {
+			earliest = at
+		}
+	}
+	return earliest
 }

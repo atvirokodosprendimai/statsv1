@@ -35,9 +35,12 @@ func (o Options) keep(s usage.Session) bool {
 }
 
 // Row is one line of the matrix: the sessions sharing a key and their totals.
+// Days counts the calendar days on which one of them started, so a period
+// can be normalised by how much of it was actually used.
 type Row struct {
 	Key              string  `json:"key"`
 	Sessions         int     `json:"sessions"`
+	Days             int     `json:"days"`
 	UserTurns        int     `json:"user_turns"`
 	Requests         int     `json:"requests"`
 	ToolCalls        int     `json:"tool_calls"`
@@ -49,6 +52,7 @@ type Row struct {
 	UnpricedRequests int     `json:"unpriced_requests"`
 	AssumedTTLTokens int64   `json:"assumed_ttl_tokens"`
 	UnverifiedUSD    float64 `json:"unverified_price_usd"`
+	days             map[string]struct{}
 }
 
 // CostPerTurn is the cost of one human turn, the unit a person experiences.
@@ -76,10 +80,25 @@ func (r Row) CacheHitRatio() float64 {
 	return float64(r.CacheRead) / float64(denom)
 }
 
+// CostPerDay divides cost by the calendar days on which a session started.
+func (r Row) CostPerDay() float64 {
+	if r.Days == 0 {
+		return 0
+	}
+	return r.CostUSD / float64(r.Days)
+}
+
 func (r *Row) addSession(s usage.Session) {
 	r.Sessions++
 	r.UserTurns += s.UserTurns
 	r.ToolCalls += s.ToolCalls
+	if !s.StartedAt.IsZero() {
+		if r.days == nil {
+			r.days = map[string]struct{}{}
+		}
+		r.days[s.StartedAt.UTC().Format("2006-01-02")] = struct{}{}
+		r.Days = len(r.days)
+	}
 }
 
 func (r *Row) addRequest(req usage.Request, c pricing.Cost) {
@@ -186,13 +205,22 @@ func sortedRows(set map[string]*Row, less func(a, b string) bool) []Row {
 	return rows
 }
 
-var columns = []string{"key", "sessions", "turns", "requests", "tool_calls", "input", "output", "cache_read", "cache_write", "cost_usd", "usd_per_turn", "usd_per_request", "cache_hit", "unpriced_requests", "assumed_ttl_tokens", "unverified_usd"}
+var columns = []string{"key", "sessions", "days", "turns", "requests", "tool_calls", "input", "output", "cache_read", "cache_write", "cost_usd", "usd_per_turn", "usd_per_request", "usd_per_day", "cache_hit", "unpriced_requests", "assumed_ttl_tokens", "unverified_usd"}
 
 func (r Row) values() []string {
-	return []string{r.Key, strconv.Itoa(r.Sessions), strconv.Itoa(r.UserTurns), strconv.Itoa(r.Requests), strconv.Itoa(r.ToolCalls),
+	return []string{r.Key, strconv.Itoa(r.Sessions), strconv.Itoa(r.Days), strconv.Itoa(r.UserTurns), strconv.Itoa(r.Requests), strconv.Itoa(r.ToolCalls),
 		strconv.FormatInt(r.Input, 10), strconv.FormatInt(r.Output, 10), strconv.FormatInt(r.CacheRead, 10), strconv.FormatInt(r.CacheWrite, 10),
-		fmt.Sprintf("%.4f", r.CostUSD), fmt.Sprintf("%.4f", r.CostPerTurn()), fmt.Sprintf("%.5f", r.CostPerRequest()), fmt.Sprintf("%.3f", r.CacheHitRatio()),
+		fmt.Sprintf("%.4f", r.CostUSD), fmt.Sprintf("%.4f", r.CostPerTurn()), fmt.Sprintf("%.5f", r.CostPerRequest()), fmt.Sprintf("%.4f", r.CostPerDay()), fmt.Sprintf("%.3f", r.CacheHitRatio()),
 		strconv.Itoa(r.UnpricedRequests), strconv.FormatInt(r.AssumedTTLTokens, 10), fmt.Sprintf("%.4f", r.UnverifiedUSD)}
+}
+
+func getRow(set map[string]*Row, key string) *Row {
+	if r, ok := set[key]; ok {
+		return r
+	}
+	r := &Row{Key: key}
+	set[key] = r
+	return r
 }
 
 // WriteCSV writes every section as one CSV with a leading "section" column.
@@ -362,4 +390,214 @@ func shortID(id string) string {
 		return id[:8]
 	}
 	return id
+}
+
+// FirstUse records when each QAM component first appears in the data: the
+// start of the earliest session whose own tool calls show it.
+type FirstUse struct {
+	Agentsmemory   time.Time `json:"agentsmemory"`
+	QualityHarness time.Time `json:"quality_harness"`
+	MRW            time.Time `json:"mrw"`
+}
+
+// FirstUses scans the sessions for the first use of each component.
+func FirstUses(sessions []usage.Session) FirstUse {
+	var f FirstUse
+	earlier := func(cur *time.Time, at time.Time) {
+		if cur.IsZero() || at.Before(*cur) {
+			*cur = at
+		}
+	}
+	for _, s := range sessions {
+		if s.StartedAt.IsZero() {
+			continue
+		}
+		if s.Signals.AM > 0 {
+			earlier(&f.Agentsmemory, s.StartedAt)
+		}
+		if s.Signals.QH > 0 {
+			earlier(&f.QualityHarness, s.StartedAt)
+		}
+		if s.Signals.MRW > 0 {
+			earlier(&f.MRW, s.StartedAt)
+		}
+	}
+	return f
+}
+
+// Installed records where and when the quality-harness plugin was installed.
+type Installed struct {
+	Dir string    `json:"dir"`
+	At  time.Time `json:"at"`
+}
+
+// Comparison is the before/after view around a split date, with the months in
+// between so a change can be placed in time, and the cohorts inside each
+// period so a change in cost can be told from a change in what was used.
+type Comparison struct {
+	GeneratedAt   time.Time   `json:"generated_at"`
+	SplitAt       time.Time   `json:"split_at"`
+	SplitReason   string      `json:"split_reason"`
+	FirstUse      FirstUse    `json:"first_use"`
+	Installed     []Installed `json:"quality_harness_installed"`
+	PriceSource   string      `json:"price_source"`
+	Before        Row         `json:"before"`
+	After         Row         `json:"after"`
+	ByMonth       []Row       `json:"by_month"`
+	CohortsBefore []Row       `json:"cohorts_before"`
+	CohortsAfter  []Row       `json:"cohorts_after"`
+}
+
+// Compare aggregates the sessions started before split and from split on.
+func Compare(sessions []usage.Session, envs map[string]usage.Environment, prices *pricing.Table, split time.Time, reason string) *Comparison {
+	day := split.Format("2006-01-02")
+	c := &Comparison{
+		GeneratedAt: time.Now(), SplitAt: split, SplitReason: reason, FirstUse: FirstUses(sessions),
+		PriceSource: prices.Source + " (as of " + prices.AsOf + ")",
+		Before:      Row{Key: "before " + day},
+		After:       Row{Key: "from " + day},
+	}
+	for _, e := range envs {
+		if !e.QualityHarnessInstalledAt.IsZero() {
+			c.Installed = append(c.Installed, Installed{Dir: e.Dir, At: e.QualityHarnessInstalledAt})
+		}
+	}
+	sort.Slice(c.Installed, func(i, j int) bool { return c.Installed[i].At.Before(c.Installed[j].At) })
+	byMonth := map[string]*Row{}
+	before := map[string]*Row{}
+	after := map[string]*Row{}
+	for _, s := range sessions {
+		if s.StartedAt.IsZero() {
+			continue
+		}
+		period, cohorts := &c.After, after
+		if s.StartedAt.Before(split) {
+			period, cohorts = &c.Before, before
+		}
+		month := getRow(byMonth, s.StartedAt.UTC().Format("2006-01"))
+		cohort := getRow(cohorts, s.Signals.Cohort())
+		period.addSession(s)
+		month.addSession(s)
+		cohort.addSession(s)
+		for _, req := range s.Requests {
+			cost := prices.Cost(req.Model, req.Tokens)
+			period.addRequest(req, cost)
+			month.addRequest(req, cost)
+			cohort.addRequest(req, cost)
+		}
+	}
+	c.ByMonth = sortedRows(byMonth, func(a, b string) bool { return a < b })
+	c.CohortsBefore = sortedRows(before, cohortOrder)
+	c.CohortsAfter = sortedRows(after, cohortOrder)
+	return c
+}
+
+// Changes lists the after-to-before ratios that answer "what changed".
+func (c *Comparison) Changes() []string {
+	b, a := c.Before, c.After
+	perTurn := func(n, turns int) float64 {
+		if turns == 0 {
+			return 0
+		}
+		return float64(n) / float64(turns)
+	}
+	perDay := func(n, days int) float64 {
+		if days == 0 {
+			return 0
+		}
+		return float64(n) / float64(days)
+	}
+	perRequest := func(n int64, requests int) float64 {
+		if requests == 0 {
+			return 0
+		}
+		return float64(n) / float64(requests)
+	}
+	return []string{
+		"cost per human turn: " + ratio(a.CostPerTurn(), b.CostPerTurn()),
+		"cost per request: " + ratio(a.CostPerRequest(), b.CostPerRequest()),
+		"cost per active day: " + ratio(a.CostPerDay(), b.CostPerDay()),
+		"sessions per active day: " + ratio(perDay(a.Sessions, a.Days), perDay(b.Sessions, b.Days)),
+		"requests per human turn: " + ratio(perTurn(a.Requests, a.UserTurns), perTurn(b.Requests, b.UserTurns)),
+		"tool calls per human turn: " + ratio(perTurn(a.ToolCalls, a.UserTurns), perTurn(b.ToolCalls, b.UserTurns)),
+		"output tokens per request: " + ratio(perRequest(a.Output, a.Requests), perRequest(b.Output, b.Requests)),
+		"cache read tokens per request: " + ratio(perRequest(a.CacheRead, a.Requests), perRequest(b.CacheRead, b.Requests)),
+		fmt.Sprintf("cache hit ratio: %.3f before, %.3f after", b.CacheHitRatio(), a.CacheHitRatio()),
+	}
+}
+
+func ratio(after, before float64) string {
+	if before == 0 || after == 0 {
+		return fmt.Sprintf("not comparable (before %.4f, after %.4f)", before, after)
+	}
+	return fmt.Sprintf("x%.2f (before %.4f, after %.4f)", after/before, before, after)
+}
+
+func dateOrNone(t time.Time) string {
+	if t.IsZero() {
+		return "never"
+	}
+	return t.UTC().Format("2006-01-02")
+}
+
+// WriteText writes the comparison as aligned tables for a terminal.
+func (c *Comparison) WriteText(w io.Writer) error {
+	day := c.SplitAt.Format("2006-01-02")
+	fmt.Fprintf(w, "statsv1 compare: sessions started before %s against sessions started from that day on (split = %s), generated %s\n", day, c.SplitReason, c.GeneratedAt.Format("2006-01-02 15:04"))
+	fmt.Fprintf(w, "first session using each component: agentsmemory %s, quality-harness %s, mrw %s\n", dateOrNone(c.FirstUse.Agentsmemory), dateOrNone(c.FirstUse.QualityHarness), dateOrNone(c.FirstUse.MRW))
+	for _, i := range c.Installed {
+		fmt.Fprintf(w, "quality-harness plugin installed in %s on %s\n", i.Dir, i.At.UTC().Format("2006-01-02"))
+	}
+	fmt.Fprintf(w, "prices: %s\n\n", c.PriceSource)
+	sections := []struct {
+		title string
+		rows  []Row
+	}{
+		{"before and after", []Row{c.Before, c.After}},
+		{"by month", c.ByMonth},
+		{"by QAM usage cohort, before " + day, c.CohortsBefore},
+		{"by QAM usage cohort, from " + day, c.CohortsAfter},
+	}
+	for _, sec := range sections {
+		fmt.Fprintln(w, sec.title)
+		if err := writeTable(w, sec.rows); err != nil {
+			return err
+		}
+		fmt.Fprintln(w)
+	}
+	fmt.Fprintln(w, "what changed (after relative to before):")
+	for _, line := range c.Changes() {
+		fmt.Fprintln(w, "  "+line)
+	}
+	fmt.Fprintln(w, "  days counts calendar days with at least one session start; the two periods hold different work on different days, so this is a time series, not an experiment.")
+	fmt.Fprintln(w, "  every figure is transcript-recorded usage, a lower bound by the same mechanism in both periods (see verify).")
+	return nil
+}
+
+// WriteCSV writes every section as one CSV with a leading "section" column.
+func (c *Comparison) WriteCSV(w io.Writer) error {
+	cw := csv.NewWriter(w)
+	if err := cw.Write(append([]string{"section"}, columns...)); err != nil {
+		return err
+	}
+	sections := []struct {
+		name string
+		rows []Row
+	}{{"period", []Row{c.Before, c.After}}, {"month", c.ByMonth}, {"cohort_before", c.CohortsBefore}, {"cohort_after", c.CohortsAfter}}
+	for _, sec := range sections {
+		for _, r := range sec.rows {
+			if err := cw.Write(append([]string{sec.name}, r.values()...)); err != nil {
+				return err
+			}
+		}
+	}
+	cw.Flush()
+	return cw.Error()
+}
+
+// WriteJSON writes the comparison as indented JSON.
+func (c *Comparison) WriteJSON(w io.Writer) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(c)
 }

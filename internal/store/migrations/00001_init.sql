@@ -4,7 +4,8 @@ CREATE TABLE config_dirs (
     label               TEXT NOT NULL,
     has_agentsmemory    INTEGER NOT NULL,
     has_quality_harness INTEGER NOT NULL,
-    scanned_at          TEXT NOT NULL
+    scanned_at          TEXT NOT NULL,
+    qh_installed_at     TEXT NOT NULL
 );
 
 CREATE TABLE sessions (

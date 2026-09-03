@@ -82,6 +82,14 @@ func newApp() *cli.Command {
 				Action: runVerify,
 			},
 			{
+				Name:  "compare",
+				Usage: "sessions before a date against sessions from it on, month by month, with what changed",
+				Flags: []cli.Flag{dbFlag(), formatFlag(),
+					&cli.StringFlag{Name: "at", Usage: "split date (YYYY-MM-DD); default: the day of the first session that used quality-harness"},
+				},
+				Action: runCompare,
+			},
+			{
 				Name:   "prices",
 				Usage:  "print the price table and its provenance",
 				Action: runPrices,
@@ -198,6 +206,39 @@ func runReport(_ context.Context, c *cli.Command) error {
 		return m.WriteCSV(os.Stdout)
 	case "json":
 		return m.WriteJSON(os.Stdout)
+	}
+	return fmt.Errorf("format %q: want table, csv or json", c.String("format"))
+}
+
+// runCompare splits the sessions at a date and reports what changed across
+// it. Without --at the split is the first session whose own tool calls show
+// quality-harness, the component whose arrival M calls the QAM installation.
+func runCompare(_ context.Context, c *cli.Command) error {
+	sessions, envs, prices, err := load(c)
+	if err != nil {
+		return err
+	}
+	split, err := parseDate(c.String("at"))
+	if err != nil {
+		return err
+	}
+	reason := "given with --at"
+	if split.IsZero() {
+		first := report.FirstUses(sessions)
+		if first.QualityHarness.IsZero() {
+			return errors.New("no collected session used quality-harness; pass --at YYYY-MM-DD")
+		}
+		split = first.QualityHarness.UTC().Truncate(24 * time.Hour)
+		reason = "the first session that used quality-harness"
+	}
+	cmp := report.Compare(sessions, envs, prices, split, reason)
+	switch c.String("format") {
+	case "table":
+		return cmp.WriteText(os.Stdout)
+	case "csv":
+		return cmp.WriteCSV(os.Stdout)
+	case "json":
+		return cmp.WriteJSON(os.Stdout)
 	}
 	return fmt.Errorf("format %q: want table, csv or json", c.String("format"))
 }

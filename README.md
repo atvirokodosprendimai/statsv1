@@ -79,9 +79,20 @@ go build -o statsv1 ./cmd/statsv1
 ./statsv1 report --since 2026-08-01 --until 2026-09-01
 ./statsv1 sessions --limit 30           # newest sessions with cohort, tokens and cost
 ./statsv1 sessions --cohort QAM --format csv --limit 0
+./statsv1 compare                       # before the QAM stack arrived vs after, month by month, what changed
+./statsv1 compare --at 2026-08-01       # split at a date of your choosing (the plugin install date, a month start)
 ./statsv1 verify                        # our cost beside Claude Code's own lastCost per project
 ./statsv1 prices                        # the price table and where it came from
 ```
+
+`compare` answers "what changed once QAM was in use": it splits the sessions
+at a date (by default the day of the first session that used quality-harness,
+the last of the three components to arrive), prints both periods with the
+same columns as the matrix plus `days` (calendar days with a session) and
+`usd_per_day`, a month-by-month table, the cohorts inside each period, and
+the after-to-before ratios. It also prints when each component first appears
+in the data and when the quality-harness plugin was installed in each config
+directory, so the split can be checked against the install date.
 
 The database defaults to `statsv1.db` in the working directory
 (`--db PATH` or `STATSV1_DB` to move it). Re-running `collect` is idempotent:

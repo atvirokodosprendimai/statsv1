@@ -135,3 +135,50 @@ func TestWritersProduceEverySection(t *testing.T) {
 		t.Errorf("sessions text lacks environment column:\n%s", st.String())
 	}
 }
+
+func TestCompareSplitsSessionsAtTheDateAndCountsDays(t *testing.T) {
+	prices, _ := pricing.Load()
+	sessions, envs := fixture()
+	day := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	first := FirstUses(sessions)
+	if !first.QualityHarness.Equal(day) || !first.Agentsmemory.Equal(day) || !first.MRW.Equal(day) {
+		t.Errorf("first uses = %+v, want all on %v", first, day)
+	}
+	c := Compare(sessions, envs, prices, day.AddDate(0, 0, 1), "test")
+	if c.Before.Sessions != 1 || c.Before.Days != 1 || c.After.Sessions != 2 || c.After.Days != 2 {
+		t.Errorf("periods: before %+v, after %+v", c.Before, c.After)
+	}
+	if len(c.ByMonth) != 1 || c.ByMonth[0].Key != "2026-09" || c.ByMonth[0].Sessions != 3 || c.ByMonth[0].Days != 3 {
+		t.Errorf("months = %+v", c.ByMonth)
+	}
+	if len(c.CohortsBefore) != 1 || c.CohortsBefore[0].Key != "QAM" || len(c.CohortsAfter) != 2 {
+		t.Errorf("cohorts before %+v, after %+v", c.CohortsBefore, c.CohortsAfter)
+	}
+	if got := c.After.CostPerDay(); math.Abs(got-c.After.CostUSD/2) > 1e-12 {
+		t.Errorf("cost per day = %f, want cost over two days", got)
+	}
+	var text bytes.Buffer
+	if err := c.WriteText(&text); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"before 2026-09-02", "from 2026-09-02", "by month", "what changed", "cost per human turn", "usd_per_day"} {
+		if !strings.Contains(text.String(), want) {
+			t.Errorf("compare text lacks %q:\n%s", want, text.String())
+		}
+	}
+	var csvOut bytes.Buffer
+	if err := c.WriteCSV(&csvOut); err != nil {
+		t.Fatal(err)
+	}
+	// header + 2 periods + 1 month + 1 cohort before + 2 cohorts after
+	if n := len(strings.Split(strings.TrimSpace(csvOut.String()), "\n")); n != 7 {
+		t.Errorf("csv lines = %d, want 7:\n%s", n, csvOut.String())
+	}
+	var js bytes.Buffer
+	if err := c.WriteJSON(&js); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(js.String(), `"by_month"`) || !strings.Contains(js.String(), `"days"`) {
+		t.Errorf("json lacks by_month or days: %s", js.String())
+	}
+}
